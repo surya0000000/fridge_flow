@@ -17,7 +17,7 @@ declare global {
   }
 }
 
-export function authenticate(req: Request, res: Response, next: NextFunction): void {
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -31,7 +31,11 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   try {
     const decoded = jwt.verify(token, secret) as { userId: number };
     const db = getDb();
-    const user = db.prepare('SELECT id, email, name, role FROM users WHERE id = ?').get(decoded.userId) as AuthUser | undefined;
+    const result = await db.execute({
+      sql: 'SELECT id, email, name, role FROM users WHERE id = ?',
+      args: [decoded.userId],
+    });
+    const user = result.rows[0] as unknown as AuthUser | undefined;
 
     if (!user) {
       res.status(401).json({ error: 'User not found' });

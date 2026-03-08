@@ -6,34 +6,31 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const db = getDb();
-  const items = db.prepare(
-    'SELECT * FROM inventory_items WHERE user_id = ? ORDER BY expiry_date ASC, added_at DESC'
-  ).all(req.user!.id);
-  res.json(items);
+  const result = await db.execute({
+    sql: 'SELECT * FROM inventory_items WHERE user_id = ? ORDER BY category, name',
+    args: [req.user!.id],
+  });
+  res.json(result.rows);
 });
 
-router.get('/expiring', (req: Request, res: Response) => {
+router.get('/expiring', async (req: Request, res: Response) => {
   const db = getDb();
-  const threeDaysFromNow = new Date();
-  threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
-  const today = new Date().toISOString().split('T')[0];
-  const deadline = threeDaysFromNow.toISOString().split('T')[0];
-
-  const items = db.prepare(
-    `SELECT * FROM inventory_items
+  const result = await db.execute({
+    sql: `SELECT * FROM inventory_items
      WHERE user_id = ?
        AND expiry_date IS NOT NULL
-       AND expiry_date >= ?
-       AND expiry_date <= ?
-     ORDER BY expiry_date ASC`
-  ).all(req.user!.id, today, deadline);
+       AND date(expiry_date) <= date('now', '+3 days')
+       AND date(expiry_date) >= date('now')
+     ORDER BY expiry_date ASC`,
+    args: [req.user!.id],
+  });
 
-  res.json(items);
+  res.json(result.rows);
 });
 
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   const { name, quantity, unit, category, expiry_date } = req.body;
 
   if (!name || quantity === undefined || !unit || !category) {
@@ -55,61 +52,77 @@ router.post('/', (req: Request, res: Response) => {
   }
 
   const db = getDb();
-  const result = db.prepare(
-    `INSERT INTO inventory_items (user_id, name, quantity, unit, category, expiry_date)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(req.user!.id, name, quantity, unit, category, expiry_date || null);
+  const insertResult = await db.execute({
+    sql: `INSERT INTO inventory_items (user_id, name, quantity, unit, category, expiry_date)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    args: [req.user!.id, name, quantity, unit, category, expiry_date || null],
+  });
 
-  const item = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(result.lastInsertRowid);
-  res.status(201).json(item);
+  const newId = Number(insertResult.lastInsertRowid);
+  const itemResult = await db.execute({
+    sql: 'SELECT * FROM inventory_items WHERE id = ?',
+    args: [newId],
+  });
+  res.status(201).json(itemResult.rows[0]);
 });
 
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, quantity, unit, category, expiry_date } = req.body;
   const db = getDb();
 
-  const existing = db.prepare(
-    'SELECT * FROM inventory_items WHERE id = ? AND user_id = ?'
-  ).get(id, req.user!.id);
+  const existingResult = await db.execute({
+    sql: 'SELECT * FROM inventory_items WHERE id = ? AND user_id = ?',
+    args: [id, req.user!.id],
+  });
 
-  if (!existing) {
+  if (existingResult.rows.length === 0) {
     res.status(404).json({ error: 'Item not found' });
     return;
   }
 
-  db.prepare(
-    `UPDATE inventory_items
-     SET name = ?, quantity = ?, unit = ?, category = ?, expiry_date = ?
-     WHERE id = ? AND user_id = ?`
-  ).run(
-    name || (existing as any).name,
-    quantity !== undefined ? quantity : (existing as any).quantity,
-    unit || (existing as any).unit,
-    category || (existing as any).category,
-    expiry_date !== undefined ? expiry_date : (existing as any).expiry_date,
-    id,
-    req.user!.id
-  );
+  const existing = existingResult.rows[0];
 
-  const updated = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(id);
-  res.json(updated);
+  await db.execute({
+    sql: `UPDATE inventory_items
+     SET name = ?, quantity = ?, unit = ?, category = ?, expiry_date = ?
+     WHERE id = ? AND user_id = ?`,
+    args: [
+      name || existing.name,
+      quantity !== undefined ? quantity : existing.quantity,
+      unit || existing.unit,
+      category || existing.category,
+      expiry_date !== undefined ? expiry_date : existing.expiry_date,
+      id,
+      req.user!.id,
+    ],
+  });
+
+  const updatedResult = await db.execute({
+    sql: 'SELECT * FROM inventory_items WHERE id = ?',
+    args: [id],
+  });
+  res.json(updatedResult.rows[0]);
 });
 
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const db = getDb();
 
-  const existing = db.prepare(
-    'SELECT id FROM inventory_items WHERE id = ? AND user_id = ?'
-  ).get(id, req.user!.id);
+  const existingResult = await db.execute({
+    sql: 'SELECT id FROM inventory_items WHERE id = ? AND user_id = ?',
+    args: [id, req.user!.id],
+  });
 
-  if (!existing) {
+  if (existingResult.rows.length === 0) {
     res.status(404).json({ error: 'Item not found' });
     return;
   }
 
-  db.prepare('DELETE FROM inventory_items WHERE id = ? AND user_id = ?').run(id, req.user!.id);
+  await db.execute({
+    sql: 'DELETE FROM inventory_items WHERE id = ? AND user_id = ?',
+    args: [id, req.user!.id],
+  });
   res.json({ success: true });
 });
 

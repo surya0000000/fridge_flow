@@ -10,3 +10,5 @@ frontend/dist/
 *.log
 backend/fridgeflow.db-shm
 backend/fridgeflow.db-wal
+.vercel
+backend/.env

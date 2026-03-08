@@ -22,22 +22,27 @@ router.post('/register', async (req: Request, res: Response) => {
   const db = getDb();
 
   try {
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-    if (existing) {
+    const existingResult = await db.execute({
+      sql: 'SELECT id FROM users WHERE email = ?',
+      args: [email],
+    });
+    if (existingResult.rows.length > 0) {
       res.status(409).json({ error: 'Email already registered' });
       return;
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const result = db.prepare(
-      'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)'
-    ).run(email, passwordHash, name, 'user');
+    const insertResult = await db.execute({
+      sql: 'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
+      args: [email, passwordHash, name, 'user'],
+    });
 
-    const userId = result.lastInsertRowid as number;
+    const userId = Number(insertResult.lastInsertRowid);
 
-    db.prepare(
-      'INSERT INTO user_preferences (user_id, dietary_goals, allergies, household_size) VALUES (?, ?, ?, ?)'
-    ).run(userId, '[]', '[]', 1);
+    await db.execute({
+      sql: 'INSERT INTO user_preferences (user_id, dietary_goals, allergies, household_size) VALUES (?, ?, ?, ?)',
+      args: [userId, '[]', '[]', 1],
+    });
 
     const secret = process.env.JWT_SECRET || 'fridgeflow-dev-secret';
     const token = jwt.sign({ userId }, secret, { expiresIn: '7d' });
@@ -61,7 +66,11 @@ router.post('/login', async (req: Request, res: Response) => {
   const db = getDb();
 
   try {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as {
+    const result = await db.execute({
+      sql: 'SELECT * FROM users WHERE email = ?',
+      args: [email],
+    });
+    const user = result.rows[0] as unknown as {
       id: number;
       email: string;
       password_hash: string;

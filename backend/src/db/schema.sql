@@ -1,4 +1,3 @@
--- Users with roles
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT UNIQUE NOT NULL,
@@ -8,7 +7,6 @@ CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Dietary preferences per user
 CREATE TABLE IF NOT EXISTS user_preferences (
   user_id INTEGER PRIMARY KEY REFERENCES users(id),
   dietary_goals TEXT,
@@ -16,7 +14,6 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   household_size INTEGER DEFAULT 1
 );
 
--- Fridge inventory
 CREATE TABLE IF NOT EXISTS inventory_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -28,7 +25,6 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   added_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Recipes (shared, seeded)
 CREATE TABLE IF NOT EXISTS recipes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -44,7 +40,6 @@ CREATE TABLE IF NOT EXISTS recipes (
   created_by INTEGER REFERENCES users(id)
 );
 
--- Recipe ingredients (normalized)
 CREATE TABLE IF NOT EXISTS recipe_ingredients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   recipe_id INTEGER NOT NULL REFERENCES recipes(id),
@@ -54,7 +49,6 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
   is_optional INTEGER DEFAULT 0
 );
 
--- User saved recipes
 CREATE TABLE IF NOT EXISTS saved_recipes (
   user_id INTEGER NOT NULL REFERENCES users(id),
   recipe_id INTEGER NOT NULL REFERENCES recipes(id),
@@ -62,7 +56,6 @@ CREATE TABLE IF NOT EXISTS saved_recipes (
   PRIMARY KEY (user_id, recipe_id)
 );
 
--- Meal plans
 CREATE TABLE IF NOT EXISTS meal_plans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -73,7 +66,6 @@ CREATE TABLE IF NOT EXISTS meal_plans (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Shopping list
 CREATE TABLE IF NOT EXISTS shopping_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -85,4 +77,4 @@ CREATE TABLE IF NOT EXISTS shopping_items (
   source TEXT,
   recipe_id INTEGER REFERENCES recipes(id),
   added_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+)

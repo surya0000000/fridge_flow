@@ -531,28 +531,21 @@ const recipes: RecipeSeed[] = [
 export async function seedDatabase(): Promise<void> {
   const db = getDb();
 
-  const recipeCount = db.prepare('SELECT COUNT(*) as count FROM recipes').get() as { count: number };
+  const countResult = await db.execute({ sql: 'SELECT COUNT(*) as count FROM recipes', args: [] });
+  const recipeCount = Number(countResult.rows[0].count);
 
-  if (recipeCount.count > 0) {
-    console.log(`Recipes table already has ${recipeCount.count} recipes. Skipping seed.`);
+  if (recipeCount > 0) {
+    console.log(`Recipes table already has ${recipeCount} recipes. Skipping seed.`);
     return;
   }
 
   console.log('Seeding database with recipes...');
 
-  const insertRecipe = db.prepare(`
-    INSERT INTO recipes (name, description, image_url, prep_time, cook_time, servings, difficulty, cuisine, dietary_tags, instructions)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertIngredient = db.prepare(`
-    INSERT INTO recipe_ingredients (recipe_id, ingredient_name, quantity, unit, is_optional)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-
-  const seedAll = db.transaction(() => {
-    for (const recipe of recipes) {
-      const result = insertRecipe.run(
+  for (const recipe of recipes) {
+    await db.execute({
+      sql: `INSERT INTO recipes (name, description, image_url, prep_time, cook_time, servings, difficulty, cuisine, dietary_tags, instructions)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
         recipe.name,
         recipe.description,
         recipe.image_url,
@@ -562,24 +555,31 @@ export async function seedDatabase(): Promise<void> {
         recipe.difficulty,
         recipe.cuisine,
         JSON.stringify(recipe.dietary_tags),
-        JSON.stringify(recipe.instructions)
-      );
+        JSON.stringify(recipe.instructions),
+      ],
+    });
 
-      const recipeId = result.lastInsertRowid;
+    const idResult = await db.execute({
+      sql: 'SELECT id FROM recipes WHERE name = ?',
+      args: [recipe.name],
+    });
+    const recipeId = Number(idResult.rows[0].id);
 
-      for (const ingredient of recipe.ingredients) {
-        insertIngredient.run(
+    for (const ingredient of recipe.ingredients) {
+      await db.execute({
+        sql: `INSERT INTO recipe_ingredients (recipe_id, ingredient_name, quantity, unit, is_optional)
+         VALUES (?, ?, ?, ?, ?)`,
+        args: [
           recipeId,
           ingredient.ingredient_name,
           ingredient.quantity,
           ingredient.unit,
-          ingredient.is_optional ? 1 : 0
-        );
-      }
+          ingredient.is_optional ? 1 : 0,
+        ],
+      });
     }
-  });
+  }
 
-  seedAll();
   console.log(`Successfully seeded ${recipes.length} recipes.`);
 }
 

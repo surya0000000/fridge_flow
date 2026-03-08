@@ -1,32 +1,22 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+import { createClient, Client } from '@libsql/client';
 
-const DB_PATH = path.join(__dirname, '../../fridgeflow.db');
-const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
+let client: Client;
 
-let db: Database.Database;
-
-export function getDb(): Database.Database {
-  if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initializeSchema();
+export function getDb(): Client {
+  if (!client) {
+    const url = process.env.TURSO_DATABASE_URL || 'file:./fridgeflow.db';
+    const authToken = process.env.TURSO_AUTH_TOKEN;
+    client = createClient({ url, authToken });
   }
-  return db;
+  return client;
 }
 
-function initializeSchema(): void {
-  const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
-  const statements = schema
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-
+export async function initDb(): Promise<void> {
+  const db = getDb();
+  const schema = require('fs').readFileSync(require('path').join(__dirname, 'schema.sql'), 'utf-8');
+  // Split on semicolons and run each statement
+  const statements = schema.split(';').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
   for (const statement of statements) {
-    db.exec(statement + ';');
+    await db.execute(statement);
   }
 }
-
-export default getDb;

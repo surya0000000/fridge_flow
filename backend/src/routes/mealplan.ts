@@ -29,7 +29,7 @@ interface InventoryItem {
   unit: string;
 }
 
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const db = getDb();
   const { start_date, end_date } = req.query;
 
@@ -40,31 +40,32 @@ router.get('/', (req: Request, res: Response) => {
     JOIN recipes r ON mp.recipe_id = r.id
     WHERE mp.user_id = ?
   `;
-  const params: unknown[] = [req.user!.id];
+  const params: (string | number | boolean | null)[] = [req.user!.id];
 
   if (start_date && typeof start_date === 'string') {
-    query += ' AND mp.planned_date >= ?';
+    query += ` AND mp.planned_date >= ?`;
     params.push(start_date);
   }
 
   if (end_date && typeof end_date === 'string') {
-    query += ' AND mp.planned_date <= ?';
+    query += ` AND mp.planned_date <= ?`;
     params.push(end_date);
   }
 
   query += ' ORDER BY mp.planned_date ASC, mp.meal_type ASC';
 
-  const meals = db.prepare(query).all(...params) as any[];
+  const result = await db.execute({ sql: query, args: params });
+  const meals = result.rows;
 
-  const result = meals.map(meal => ({
+  const resultMeals = meals.map((meal: any) => ({
     ...meal,
     dietary_tags: JSON.parse(meal.dietary_tags || '[]'),
   }));
 
-  res.json(result);
+  res.json(resultMeals);
 });
 
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   const { recipe_id, planned_date, meal_type, servings } = req.body;
 
   if (!recipe_id || !planned_date || !meal_type) {
@@ -80,24 +81,32 @@ router.post('/', (req: Request, res: Response) => {
 
   const db = getDb();
 
-  const recipe = db.prepare('SELECT id FROM recipes WHERE id = ?').get(recipe_id);
-  if (!recipe) {
+  const recipeResult = await db.execute({
+    sql: 'SELECT id FROM recipes WHERE id = ?',
+    args: [recipe_id],
+  });
+  if (recipeResult.rows.length === 0) {
     res.status(404).json({ error: 'Recipe not found' });
     return;
   }
 
-  const result = db.prepare(
-    `INSERT INTO meal_plans (user_id, recipe_id, planned_date, meal_type, servings)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(req.user!.id, recipe_id, planned_date, meal_type, servings || 1);
+  const insertResult = await db.execute({
+    sql: `INSERT INTO meal_plans (user_id, recipe_id, planned_date, meal_type, servings)
+     VALUES (?, ?, ?, ?, ?)`,
+    args: [req.user!.id, recipe_id, planned_date, meal_type, servings || 1],
+  });
 
-  const meal = db.prepare(`
-    SELECT mp.*, r.name as recipe_name, r.prep_time, r.cook_time,
-           r.dietary_tags, r.cuisine, r.image_url
-    FROM meal_plans mp
-    JOIN recipes r ON mp.recipe_id = r.id
-    WHERE mp.id = ?
-  `).get(result.lastInsertRowid) as any;
+  const newId = Number(insertResult.lastInsertRowid);
+  const mealResult = await db.execute({
+    sql: `SELECT mp.*, r.name as recipe_name, r.prep_time, r.cook_time,
+            r.dietary_tags, r.cuisine, r.image_url
+     FROM meal_plans mp
+     JOIN recipes r ON mp.recipe_id = r.id
+     WHERE mp.id = ?`,
+    args: [newId],
+  });
+
+  const meal = mealResult.rows[0] as any;
 
   res.status(201).json({
     ...meal,
@@ -105,24 +114,28 @@ router.post('/', (req: Request, res: Response) => {
   });
 });
 
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const db = getDb();
 
-  const existing = db.prepare(
-    'SELECT id FROM meal_plans WHERE id = ? AND user_id = ?'
-  ).get(id, req.user!.id);
+  const existingResult = await db.execute({
+    sql: 'SELECT id FROM meal_plans WHERE id = ? AND user_id = ?',
+    args: [id, req.user!.id],
+  });
 
-  if (!existing) {
+  if (existingResult.rows.length === 0) {
     res.status(404).json({ error: 'Meal plan entry not found' });
     return;
   }
 
-  db.prepare('DELETE FROM meal_plans WHERE id = ? AND user_id = ?').run(id, req.user!.id);
+  await db.execute({
+    sql: 'DELETE FROM meal_plans WHERE id = ? AND user_id = ?',
+    args: [id, req.user!.id],
+  });
   res.json({ success: true });
 });
 
-router.post('/sync-shopping', (req: Request, res: Response) => {
+router.post('/sync-shopping', async (req: Request, res: Response) => {
   const db = getDb();
   const userId = req.user!.id;
 
@@ -131,21 +144,25 @@ router.post('/sync-shopping', (req: Request, res: Response) => {
   nextWeek.setDate(nextWeek.getDate() + 7);
   const nextWeekStr = nextWeek.toISOString().split('T')[0];
 
-  const mealPlans = db.prepare(
-    `SELECT mp.*, r.name as recipe_name
+  const mealPlansResult = await db.execute({
+    sql: `SELECT mp.*, r.name as recipe_name
      FROM meal_plans mp
      JOIN recipes r ON mp.recipe_id = r.id
-     WHERE mp.user_id = ? AND mp.planned_date >= ? AND mp.planned_date <= ?`
-  ).all(userId, today, nextWeekStr) as (MealPlan & { recipe_name: string })[];
+     WHERE mp.user_id = ? AND mp.planned_date >= ? AND mp.planned_date <= ?`,
+    args: [userId, today, nextWeekStr],
+  });
+  const mealPlans = mealPlansResult.rows as unknown as (MealPlan & { recipe_name: string })[];
 
   if (mealPlans.length === 0) {
     res.json({ added: 0, message: 'No upcoming meals found in meal plan' });
     return;
   }
 
-  const inventory = db.prepare(
-    'SELECT * FROM inventory_items WHERE user_id = ?'
-  ).all(userId) as InventoryItem[];
+  const inventoryResult = await db.execute({
+    sql: 'SELECT * FROM inventory_items WHERE user_id = ?',
+    args: [userId],
+  });
+  const inventory = inventoryResult.rows as unknown as InventoryItem[];
 
   const inventoryMap = new Map<string, InventoryItem>();
   for (const item of inventory) {
@@ -161,9 +178,11 @@ router.post('/sync-shopping', (req: Request, res: Response) => {
   }>();
 
   for (const meal of mealPlans) {
-    const ingredients = db.prepare(
-      'SELECT * FROM recipe_ingredients WHERE recipe_id = ? AND is_optional = 0'
-    ).all(meal.recipe_id) as RecipeIngredient[];
+    const ingredientsResult = await db.execute({
+      sql: 'SELECT * FROM recipe_ingredients WHERE recipe_id = ? AND is_optional = 0',
+      args: [meal.recipe_id],
+    });
+    const ingredients = ingredientsResult.rows as unknown as RecipeIngredient[];
 
     for (const ingredient of ingredients) {
       const normalizedName = ingredient.ingredient_name.toLowerCase().trim();
@@ -192,27 +211,20 @@ router.post('/sync-shopping', (req: Request, res: Response) => {
   }
 
   let addedCount = 0;
-  const insertStmt = db.prepare(
-    `INSERT INTO shopping_items (user_id, name, quantity, unit, category, source, recipe_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  );
 
   for (const [, item] of neededIngredients) {
-    const alreadyInList = db.prepare(
-      `SELECT id FROM shopping_items
-       WHERE user_id = ? AND name = ? AND is_checked = 0`
-    ).get(userId, item.name);
+    const alreadyInListResult = await db.execute({
+      sql: `SELECT id FROM shopping_items
+       WHERE user_id = ? AND name = ? AND is_checked = 0`,
+      args: [userId, item.name],
+    });
 
-    if (!alreadyInList) {
-      insertStmt.run(
-        userId,
-        item.name,
-        item.quantity,
-        item.unit,
-        item.category,
-        'meal_plan',
-        item.recipe_id
-      );
+    if (alreadyInListResult.rows.length === 0) {
+      await db.execute({
+        sql: `INSERT INTO shopping_items (user_id, name, quantity, unit, category, source, recipe_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [userId, item.name, item.quantity, item.unit, item.category, 'meal_plan', item.recipe_id],
+      });
       addedCount++;
     }
   }
