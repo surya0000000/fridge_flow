@@ -1,0 +1,12 @@
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+backend/fridgeflow.db
+backend/.env
+dist/
+backend/dist/
+frontend/dist/
+.DS_Store
+*.log
+backend/fridgeflow.db-shm
+backend/fridgeflow.db-wal
