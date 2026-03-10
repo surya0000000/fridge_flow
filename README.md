@@ -2,6 +2,8 @@
 
 A full-stack fridge management and meal planning application. Track your inventory, discover recipes matched to what you have, build meal plans, and generate shopping lists automatically.
 
+**Live Demo:** https://fridgeflow-2fkhwcq7j-surya0000000s-projects.vercel.app
+
 ## Tech Stack
 
 - **Frontend:** React 18 + TypeScript + Vite + TailwindCSS + React Router v6
